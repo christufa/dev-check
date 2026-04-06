@@ -1,0 +1,29 @@
+services:
+  datascience:
+    image: ghcr.io/christufa/mai-base-image:main
+    container_name: ${CONTAINER_NAME:-dev-check}
+
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - CONDA_ENV_NAME=${CONDA_ENV_NAME:-ds}
+      - HF_HOME=/workspace/.cache/huggingface
+      - TORCH_HOME=/workspace/.cache/torch
+
+    network_mode: ${NETWORK_MODE:-bridge}
+    command: sleep infinity
+    stdin_open: true
+    tty: true
+    mem_limit: ${MEMORY_LIMIT:-80g}

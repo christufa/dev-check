@@ -1,0 +1,72 @@
+{
+  "name": "dev-check",
+  "runArgs": ["--gpus", "all"],
+  "dockerComposeFile": "../docker-compose.yml",
+  // "image": "test",
+  "service": "datascience",
+  "workspaceFolder": "/workspace",
+  "shutdownAction": "stopCompose",
+  "remoteUser": "devuser",
+  "mounts": [
+    "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
+    "source=C:\\data,target=/workspace/data,type=bind,consistency=cached",
+    "source=C:\\Users\\chris\\dev\\.cache,target=/workspace/.cache,type=bind,consistency=cached"
+  ],
+
+  // ── Container environment ──────────────────────────────────────────────────
+  // HF_HOME and TORCH_HOME live in compose — only PYTHONPATH is devcontainer-specific
+  "containerEnv": {
+    "PYTHONPATH": "/workspace"
+  },
+
+  // ── Features ───────────────────────────────────────────────────────────────
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+
+  // ── VS Code ────────────────────────────────────────────────────────────────
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-python.black-formatter",
+        "charliermarsh.ruff",
+        "ms-python.mypy-type-checker",
+        "ms-toolsai.jupyter",
+        "ms-toolsai.jupyter-keymap",
+        "ms-toolsai.jupyter-renderers",
+        "ms-toolsai.vscode-jupyter-cell-tags",
+        "ms-toolsai.vscode-jupyter-slideshow",
+        "ms-toolsai.datawrangler"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/opt/conda/envs/ds/bin/python",
+        "python.terminal.activateEnvironment": true,
+        "editor.formatOnSave": true,
+        "[python]": {
+          "editor.defaultFormatter": "ms-python.black-formatter",
+          "editor.formatOnSave": true
+        },
+        "ruff.enable": true,
+        "ruff.fixAll": true,
+        "ruff.organizeImports": true,
+        "jupyter.kernels.filter": [
+          { "path": "/opt/conda/envs/ds/bin/python", "type": "pythonEnvironment" }
+        ],
+        "jupyter.notebookFileRoot": "/workspace",
+        "jupyter.interactiveWindowMode": "perFile",
+        "notebook.formatOnSave.enabled": true,
+        "notebook.output.wordWrap": true,
+        "editor.rulers": [88, 120],
+        "editor.tabSize": 4,
+        "editor.insertSpaces": true,
+        "files.trimTrailingWhitespace": true,
+        "terminal.integrated.defaultProfile.linux": "zsh",
+        "terminal.integrated.fontSize": 13,
+        "git.autofetch": true,
+        "gitlens.codeLens.enabled": true
+      }
+    }
+  }
+}
