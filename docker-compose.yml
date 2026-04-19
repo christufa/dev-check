@@ -27,3 +27,5 @@ services:
     stdin_open: true
     tty: true
     mem_limit: ${MEMORY_LIMIT:-80g}
+
+

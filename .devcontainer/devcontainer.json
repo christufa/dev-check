@@ -1,6 +1,10 @@
 {
   "name": "dev-check",
-  "runArgs": ["--gpus", "all"],
+  "runArgs": [
+    "--gpus",
+    "all",
+    "--env-file", "${localWorkspaceFolder}/.env"
+  ],
   "dockerComposeFile": "../docker-compose.yml",
   // "image": "test",
   "service": "datascience",
@@ -12,18 +16,15 @@
     "source=C:\\data,target=/workspace/data,type=bind,consistency=cached",
     "source=C:\\Users\\chris\\dev\\.cache,target=/workspace/.cache,type=bind,consistency=cached"
   ],
-
   // ── Container environment ──────────────────────────────────────────────────
   // HF_HOME and TORCH_HOME live in compose — only PYTHONPATH is devcontainer-specific
   "containerEnv": {
-    "PYTHONPATH": "/workspace"
+    "PYTHONPATH": "/workspace",
   },
-
   // ── Features ───────────────────────────────────────────────────────────────
   "features": {
     "ghcr.io/devcontainers/features/github-cli:1": {}
   },
-
   // ── VS Code ────────────────────────────────────────────────────────────────
   "customizations": {
     "vscode": {
@@ -38,7 +39,8 @@
         "ms-toolsai.jupyter-renderers",
         "ms-toolsai.vscode-jupyter-cell-tags",
         "ms-toolsai.vscode-jupyter-slideshow",
-        "ms-toolsai.datawrangler"
+        "ms-toolsai.datawrangler",
+        "Anthropic.claude-code"
       ],
       "settings": {
         "python.defaultInterpreterPath": "/opt/conda/envs/ds/bin/python",
@@ -52,13 +54,19 @@
         "ruff.fixAll": true,
         "ruff.organizeImports": true,
         "jupyter.kernels.filter": [
-          { "path": "/opt/conda/envs/ds/bin/python", "type": "pythonEnvironment" }
+          {
+            "path": "/opt/conda/envs/ds/bin/python",
+            "type": "pythonEnvironment"
+          }
         ],
         "jupyter.notebookFileRoot": "/workspace",
         "jupyter.interactiveWindowMode": "perFile",
         "notebook.formatOnSave.enabled": true,
         "notebook.output.wordWrap": true,
-        "editor.rulers": [88, 120],
+        "editor.rulers": [
+          88,
+          120
+        ],
         "editor.tabSize": 4,
         "editor.insertSpaces": true,
         "files.trimTrailingWhitespace": true,

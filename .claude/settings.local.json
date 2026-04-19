@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c ':*)",
+      "Bash(python -c ':*)",
+      "Bash(node -e ':*)",
+      "Bash(node /tmp/fix_attention_nb.js)"
+    ]
+  }
+}

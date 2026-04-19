@@ -25,9 +25,8 @@ ENV/
 *.pem
 *.key
 secrets/
-data/
+/workspace/data/
 datasets/
-models/
 checkpoints/
 runs/
 outputs/
