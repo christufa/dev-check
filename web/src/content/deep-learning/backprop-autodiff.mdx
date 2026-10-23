@@ -1,0 +1,308 @@
+import { ReverseSweep } from "../../demos/ReverseSweep";
+import { GradCheck } from "../../demos/GradCheck";
+import { SpiralTrainer } from "../../demos/SpiralTrainer";
+
+export const meta = {
+  title: "Backprop as reverse-mode autodiff",
+  summary: "Why one backward pass gives the whole gradient, how to derive any VJP with matrix differentials, and a mini autograd built and checked from scratch.",
+  order: 1,
+  source: "Module 1 of the deep learning theory path",
+};
+
+# Backpropagation as reverse-mode automatic differentiation
+
+Backprop is one instance of a general algorithm, *reverse-mode automatic differentiation*. This lesson derives it, builds a small autograd engine, and checks every gradient it produces. By the end you should be able to:
+
+- explain why reverse mode computes a full gradient in one backward pass, and when forward mode is the better choice
+- derive the vector–Jacobian product (VJP) of any operation with matrix differentials, without forming a Jacobian
+- explain why gradients *accumulate* at fan-out and why nodes are processed in reverse topological order
+- derive $\boldsymbol{\delta}^{(L)} = \hat{\mathbf{y}} - \mathbf{y}$ for softmax with cross-entropy
+- verify any gradient numerically, and know what error to expect
+
+## 1. Programs as compositions
+
+A differentiable program is a composition
+
+$$
+f = f_L \circ f_{L-1} \circ \cdots \circ f_1 : \mathbb{R}^{d_0} \to \mathbb{R}^{d_L}, \qquad \mathbf{x}_\ell = f_\ell(\mathbf{x}_{\ell-1}).
+$$
+
+Let $\mathbf{J}_\ell = \partial \mathbf{x}_\ell / \partial \mathbf{x}_{\ell-1} \in \mathbb{R}^{d_\ell \times d_{\ell-1}}$ be the Jacobian of step $\ell$, evaluated at $\mathbf{x}_{\ell-1}$. The chain rule says
+
+$$
+\mathbf{J}_f(\mathbf{x}_0) = \mathbf{J}_L \, \mathbf{J}_{L-1} \cdots \mathbf{J}_1 .
+$$
+
+In training, $f$ is the **loss as a function of the parameters**: $d_0 = P$ (millions to trillions) and $d_L = 1$. So $\mathbf{J}_f$ is a single row, $\nabla \mathcal{L}^\top$.
+
+## 2. Two ways to evaluate the same product
+
+Matrix multiplication is associative, so the product can be bracketed from either end. The answer is the same, but the **cost** is not.
+
+**Forward mode** (right to left) pushes a *tangent* $\mathbf{v} \in \mathbb{R}^{d_0}$ through the program:
+
+$$
+\mathbf{J}_f \mathbf{v} = \mathbf{J}_L\big(\cdots\big(\mathbf{J}_2(\mathbf{J}_1 \mathbf{v})\big)\big), \qquad \dot{\mathbf{x}}_\ell = \mathbf{J}_\ell \, \dot{\mathbf{x}}_{\ell-1}, \quad \dot{\mathbf{x}}_0 = \mathbf{v}.
+$$
+
+One pass gives one Jacobian–vector product (JVP), a directional derivative. To get the full gradient you seed $\mathbf{v} = \mathbf{e}_1, \ldots, \mathbf{e}_{d_0}$, which takes **$d_0$ passes**.
+
+**Reverse mode** (left to right) pulls a *cotangent* $\mathbf{u} \in \mathbb{R}^{d_L}$ backwards:
+
+$$
+\mathbf{u}^\top \mathbf{J}_f = \big(\big((\mathbf{u}^\top \mathbf{J}_L)\mathbf{J}_{L-1}\big)\cdots\big)\mathbf{J}_1, \qquad \mathbf{g}_{\ell-1} = \mathbf{J}_\ell^\top \mathbf{g}_\ell, \quad \mathbf{g}_L = \mathbf{u}.
+$$
+
+One pass gives one vector–Jacobian product, a full row of $\mathbf{J}_f$. With a scalar loss $\mathbf{u} = 1$, so **one pass gives the whole gradient**. Here $\mathbf{g}_\ell = \partial \mathcal{L} / \partial \mathbf{x}_\ell$ is "the gradient at node $\ell$".
+
+| | Propagates | One pass gives | Passes for all of $\mathbf{J}_f$ | Extra memory |
+| --- | --- | --- | --- | --- |
+| Forward | tangent $\dot{\mathbf{x}}$ | $\mathbf{J}_f \mathbf{v}$, a column | $d_0$, the number of inputs | $O(1)$: intermediates can be discarded |
+| Reverse | cotangent $\mathbf{g}$ | $\mathbf{u}^\top \mathbf{J}_f$, a row | $d_L$, the number of outputs | every intermediate (the *tape*) |
+
+For a neural network $d_0 = P$ and $d_L = 1$, so reverse mode is cheaper by a factor of $P$. Two more points:
+
+- **Only vector–matrix products, never matrix–matrix.** Multiplying the Jacobians together first would cost $O(d^3)$ per step. Pushing a vector through costs $O(d^2)$, and only $O(d)$ for elementwise steps, whose Jacobian is diagonal and never materialized.
+- **The cheap gradient principle.** The cost of $\nabla f$ is at most a small constant times the cost of $f$, *independent of $P$*. Griewank and Walther bound the constant by about 4–5 in their operation-count model. For a dense layer the backward pass is two matmuls against one forward, so about 2×. Compare finite differences: $2P$ evaluations of $f$ (central), plus truncation and roundoff error. That's a saving by a factor of $P$, not an exponential one.
+
+## 3. General graphs: fan-out means summing
+
+Real programs are DAGs, not chains. If node $v$ is consumed by children $c_1, \ldots, c_k$, the multivariable chain rule gives
+
+$$
+\mathbf{g}_v = \sum_{i=1}^{k} \left( \frac{\partial c_i}{\partial v} \right)^{\!\top} \mathbf{g}_{c_i}.
+$$
+
+This has two consequences for the implementation:
+
+1. **Accumulate** gradients with `+=`. Never overwrite them.
+2. Process nodes in **reverse topological order**, so $\mathbf{g}_v$ has received every contribution before it's pushed on to $v$'s parents.
+
+*Parameter sharing is fan-out.* The recurrent weight $\mathbf{W}_h$ used at every time step, or a conv kernel used at every position, is one node with many children. The $\sum_t$ in backpropagation through time is exactly this sum.
+
+Step through the sweep below for $f(x_1, x_2, x_3) = \tanh(x_1 x_2) + x_2 x_3^2$. Both $x_2$ and $x_3$ fan out, so each receives its gradient in two parts.
+
+<ReverseSweep />
+
+## 4. Deriving VJPs without forming Jacobians
+
+Use the Frobenius inner product $\langle \mathbf{A}, \mathbf{B} \rangle = \operatorname{tr}(\mathbf{A}^\top \mathbf{B}) = \sum_{ij} A_{ij} B_{ij}$. For a scalar loss that depends on a node $\mathbf{C}$, define $\mathbf{G}_\mathbf{C} = \partial \mathcal{L} / \partial \mathbf{C}$, the same shape as $\mathbf{C}$, so that
+
+$$
+d\mathcal{L} = \langle \mathbf{G}_\mathbf{C}, d\mathbf{C} \rangle.
+$$
+
+**Recipe:** write $d\mathbf{C}$ in terms of the input differentials, then use cyclicity of the trace to rearrange each term into the form $\langle \,\cdot\,, d\mathbf{A} \rangle$. Whatever sits in the first slot is $\mathbf{G}_\mathbf{A}$.
+
+**Matmul.** Let $\mathbf{C} = \mathbf{A}\mathbf{B}$ with $\mathbf{A} \in \mathbb{R}^{m \times k}$ and $\mathbf{B} \in \mathbb{R}^{k \times n}$. Then $d\mathbf{C} = d\mathbf{A}\,\mathbf{B} + \mathbf{A}\,d\mathbf{B}$, and
+
+$$
+\langle \mathbf{G}, d\mathbf{A}\,\mathbf{B} \rangle = \operatorname{tr}(\mathbf{G}^\top d\mathbf{A}\,\mathbf{B}) = \operatorname{tr}(\mathbf{B}\mathbf{G}^\top d\mathbf{A}) = \langle \mathbf{G}\mathbf{B}^\top, d\mathbf{A} \rangle, \qquad \langle \mathbf{G}, \mathbf{A}\,d\mathbf{B} \rangle = \langle \mathbf{A}^\top \mathbf{G}, d\mathbf{B} \rangle,
+$$
+
+$$
+\boxed{\mathbf{G}_\mathbf{A} = \mathbf{G}\mathbf{B}^\top \in \mathbb{R}^{m \times k}, \qquad \mathbf{G}_\mathbf{B} = \mathbf{A}^\top \mathbf{G} \in \mathbb{R}^{k \times n}}
+$$
+
+The shapes have to match, which is a free sanity check.
+
+**Elementwise.** $\mathbf{Y} = \phi(\mathbf{X})$ gives $d\mathbf{Y} = \phi'(\mathbf{X}) \odot d\mathbf{X}$, so $\langle \mathbf{G}, \phi'(\mathbf{X}) \odot d\mathbf{X} \rangle = \langle \mathbf{G} \odot \phi'(\mathbf{X}), d\mathbf{X} \rangle$ and $\mathbf{G}_\mathbf{X} = \mathbf{G} \odot \phi'(\mathbf{X})$.
+
+**Broadcasting and summation are adjoint.** A bias is broadcast over the $N$ rows of a batch: $\mathbf{Y} = \mathbf{X}\mathbf{W} + \mathbf{1}\mathbf{b}^\top$. Then $d\mathbf{Y} = \mathbf{1}\,d\mathbf{b}^\top$ and
+
+$$
+\langle \mathbf{G}, \mathbf{1}\,d\mathbf{b}^\top \rangle = \operatorname{tr}(\mathbf{G}^\top \mathbf{1}\,d\mathbf{b}^\top) = d\mathbf{b}^\top \mathbf{G}^\top \mathbf{1} = \langle \mathbf{G}^\top \mathbf{1}, d\mathbf{b} \rangle,
+$$
+
+so $\mathbf{g}_\mathbf{b} = \mathbf{G}^\top \mathbf{1}$, the column sums of $\mathbf{G}$. In words: **the bias gradient is $\boldsymbol{\delta}$ summed over the batch**. In the other direction, the VJP of a sum is a broadcast.
+
+**Log-softmax**, for one row $\mathbf{x} \in \mathbb{R}^K$. We have $\mathbf{y} = \mathbf{x} - \operatorname{lse}(\mathbf{x})\mathbf{1}$ with $\operatorname{lse}(\mathbf{x}) = \log \sum_j e^{x_j}$, whose gradient is the softmax $\mathbf{s}$. So $d\mathbf{y} = d\mathbf{x} - (\mathbf{s}^\top d\mathbf{x})\mathbf{1}$ and
+
+$$
+\langle \mathbf{g}, d\mathbf{y} \rangle = \mathbf{g}^\top d\mathbf{x} - (\mathbf{1}^\top \mathbf{g})(\mathbf{s}^\top d\mathbf{x}) \quad \Longrightarrow \quad \mathbf{g}_\mathbf{x} = \mathbf{g} - (\mathbf{1}^\top \mathbf{g})\,\mathbf{s}.
+$$
+
+**Softmax with cross-entropy.** With a one-hot label $\mathbf{y}$, $\mathcal{L} = -\mathbf{y}^\top \operatorname{logsoftmax}(\mathbf{x})$. The gradient arriving at the log-softmax output is $-\mathbf{y}$, so
+
+$$
+\mathbf{g}_\mathbf{x} = -\mathbf{y} - \big(\mathbf{1}^\top(-\mathbf{y})\big)\mathbf{s} = \mathbf{s} - \mathbf{y} \qquad (\text{since } \mathbf{1}^\top \mathbf{y} = 1).
+$$
+
+For a batch mean, $\mathbf{G}_\mathbf{X} = (\mathbf{S} - \mathbf{Y})/N$. This is the correct $\boldsymbol{\delta}^{(L)}$ for a softmax output. It is *not* $\nabla_\mathbf{h} \mathcal{L} \circ \phi'(\mathbf{z})$, because the softmax Jacobian isn't diagonal, but the two nonlinearities fuse into something very simple. Frameworks fuse them in code too, which is also more numerically stable.
+
+## 5. Reading the backprop notes as reverse mode
+
+In the column convention of the neural network notes, $\mathbf{z}^{(\ell)} = \mathbf{W}^{(\ell)} \bar{\mathbf{h}}^{(\ell-1)}$:
+
+- $\boldsymbol{\delta}^{(\ell)}$ is just $\mathbf{g}_{\mathbf{z}^{(\ell)}}$, the cotangent at the pre-activation.
+- The recursion is two VJPs in a row. Matmul gives $\mathbf{g}_{\mathbf{h}^{(\ell)}} = (\mathbf{W}^{(\ell+1)})^\top \boldsymbol{\delta}^{(\ell+1)}$, then the elementwise step gives $\boldsymbol{\delta}^{(\ell)} = \mathbf{g}_{\mathbf{h}^{(\ell)}} \odot \phi'(\mathbf{z}^{(\ell)})$.
+- $\nabla_{\mathbf{W}^{(\ell)}} \mathcal{L} = \boldsymbol{\delta}^{(\ell)} (\bar{\mathbf{h}}^{(\ell-1)})^\top$ is matmul's *other* VJP.
+
+**The bias fix.** With an augmented matrix $\tilde{\mathbf{W}}^{(\ell+1)} = [\,\mathbf{W} \mid \mathbf{b}\,]$, the matmul VJP returns a gradient for the augmented vector $\bar{\mathbf{h}}^{(\ell)}$, which has $d_\ell + 1$ entries. The last entry is the gradient with respect to the constant 1 and is discarded:
+
+$$
+\mathbf{g}_{\mathbf{h}^{(\ell)}} = \big(\tilde{\mathbf{W}}^{(\ell+1)}_{:,\,1:d_\ell}\big)^\top \boldsymbol{\delta}^{(\ell+1)}.
+$$
+
+Keeping $\mathbf{b}$ as a separate node, as the engine below does, avoids the issue entirely.
+
+**Convention used below.** Rows are examples, so a layer is $\mathbf{Z} = \mathbf{H}\mathbf{W} + \mathbf{b}$ with $\mathbf{H} \in \mathbb{R}^{N \times d_\text{in}}$ and $\mathbf{W} \in \mathbb{R}^{d_\text{in} \times d_\text{out}}$. Everything transposes: $\mathbf{G}_\mathbf{W} = \mathbf{H}^\top \mathbf{G}_\mathbf{Z}$, $\mathbf{G}_\mathbf{H} = \mathbf{G}_\mathbf{Z} \mathbf{W}^\top$, and $\mathbf{g}_\mathbf{b}$ is the column sums of $\mathbf{G}_\mathbf{Z}$.
+
+## 6. The price of reverse mode: memory
+
+The backward pass needs values from the forward pass: $\mathbf{G}_\mathbf{W} = \mathbf{H}^\top \mathbf{G}_\mathbf{Z}$ needs $\mathbf{H}$, and the tanh VJP needs $1 - \tanh^2$. So the tape keeps every intermediate. For an MLP that's $O(L \cdot N \cdot d)$ memory, and in practice **activations, not parameters, usually dominate training memory**.
+
+**Gradient checkpointing** trades compute for memory. Store only every $\sqrt{L}$-th activation and recompute each segment during the backward pass: memory drops to $O(\sqrt{L})$, at the cost of roughly one extra forward pass.
+
+Forward mode has no such cost. That's one reason it's used for JVPs and for Hessian–vector products ("forward-over-reverse").
+
+## 7. Implementation
+
+Each `Tensor` stores its value, its parents, and a **VJP closure** that maps the gradient at this node to gradient contributions for its parents. `backward()` does exactly what sections 2 and 3 describe:
+
+1. topologically sort the graph,
+2. seed the output with $\mathbf{g} = 1$,
+3. walk in reverse order, pushing each node's gradient to its parents with `+=`.
+
+Everything is float64 so that gradient checks are meaningful, and every node gets a gradient. Here is the core of the NumPy version:
+
+```python
+class Tensor:
+    """A node in the computation graph: a value plus a rule for pulling gradients back to its parents."""
+
+    def __init__(self, data, parents=(), op=""):
+        self.data = np.asarray(data, dtype=np.float64)
+        self.grad = None
+        self._parents = parents
+        self._vjp = lambda g: ()
+        self.op = op
+
+    def backward(self):
+        """Reverse-mode sweep: fills .grad on every node in this scalar's graph."""
+        order = _topo(self)
+        for t in order:
+            t.grad = np.zeros_like(t.data)
+        self.grad = np.ones_like(self.data)
+        for t in reversed(order):
+            for parent, g in zip(t._parents, t._vjp(t.grad)):
+                parent.grad += g  # fan-out: contributions accumulate
+
+    def __add__(self, other):
+        a, b = self, _lift(other)
+        return _node(a.data + b.data, (a, b),
+                     lambda g: (_unbroadcast(g, a.shape), _unbroadcast(g, b.shape)), "+")
+
+    def __matmul__(self, other):
+        a, b = self, _lift(other)
+        return _node(a.data @ b.data, (a, b), lambda g: (g @ b.data.T, a.data.T @ g), "@")
+
+    def tanh(self):
+        out = np.tanh(self.data)
+        return _node(out, (self,), lambda g: (g * (1.0 - out ** 2),), "tanh")
+
+    def log_softmax(self, axis=-1):
+        x = self.data
+        m = x.max(axis=axis, keepdims=True)
+        out = x - (m + np.log(np.exp(x - m).sum(axis=axis, keepdims=True)))  # stable log-sum-exp
+        s = np.exp(out)
+        # section 4: g_x = g - (1ᵀg) s
+        return _node(out, (self,), lambda g: (g - s * g.sum(axis=axis, keepdims=True),), "log_softmax")
+```
+
+<details>
+<summary>The helpers: broadcasting, graph nodes and topological sort</summary>
+
+```python
+def _unbroadcast(g, shape):
+    """VJP of NumPy broadcasting: sum g back down to `shape` (broadcast and sum are adjoint)."""
+    while g.ndim > len(shape):
+        g = g.sum(axis=0)
+    for i, n in enumerate(shape):
+        if n == 1 and g.shape[i] != 1:
+            g = g.sum(axis=i, keepdims=True)
+    return g
+
+
+def _lift(x):
+    return x if isinstance(x, Tensor) else Tensor(x)
+
+
+def _node(data, parents, vjp, op):
+    out = Tensor(data, parents, op)
+    out._vjp = vjp
+    return out
+
+
+def _topo(root):
+    """Iterative post-order DFS: every node appears after all of its parents."""
+    order, seen, stack = [], set(), [(root, False)]
+    while stack:
+        node, expanded = stack.pop()
+        if expanded:
+            order.append(node)
+            continue
+        if id(node) in seen:
+            continue
+        seen.add(id(node))
+        stack.append((node, True))
+        stack.extend((p, False) for p in node._parents if id(p) not in seen)
+    return order
+```
+
+</details>
+
+The demos on this page run a TypeScript port of the same engine, with the same VJPs and the same tests.
+
+## 8. Forward mode with dual numbers
+
+Forward mode can be implemented with **dual numbers** $a + b\varepsilon$, where $\varepsilon^2 = 0$. The Taylor series stops after one term,
+
+$$
+f(a + b\varepsilon) = f(a) + f'(a)\,b\,\varepsilon,
+$$
+
+so carrying the $\varepsilon$ part through every operation propagates a tangent. To get $\partial f / \partial x_i$ you seed $x_i$ with tangent 1 and the others with 0, one pass per input. The forward-mode column in the graph demo above was computed exactly this way.
+
+```python
+class Dual:
+    """a + bε with ε² = 0: `val` is the value, `tan` the tangent."""
+
+    def __init__(self, val, tan=0.0):
+        self.val, self.tan = val, tan
+
+    def __add__(self, o):
+        return Dual(self.val + o.val, self.tan + o.tan)
+
+    def __mul__(self, o):
+        return Dual(self.val * o.val, self.val * o.tan + self.tan * o.val)  # product rule
+```
+
+## 9. Gradient checking
+
+The central difference has error from two sources:
+
+$$
+\frac{f(\mathbf{x} + h\mathbf{e}_i) - f(\mathbf{x} - h\mathbf{e}_i)}{2h} = \partial_i f(\mathbf{x}) + \underbrace{O(h^2)}_{\text{truncation}} + \underbrace{O(\varepsilon_\text{mach}/h)}_{\text{roundoff}}.
+$$
+
+Balancing the two gives $h \sim \varepsilon_\text{mach}^{1/3} \approx 6 \times 10^{-6}$ in float64, with error around $\varepsilon_\text{mach}^{2/3} \approx 10^{-11}$. So relative errors of $10^{-8}$ to $10^{-11}$ mean the gradient is right, and anything above about $10^{-5}$ is a bug. The relative error used is $\lVert \mathbf{g}_\text{auto} - \mathbf{g}_\text{num} \rVert / (\lVert \mathbf{g}_\text{auto} \rVert + \lVert \mathbf{g}_\text{num} \rVert)$.
+
+It costs $2P$ evaluations, which is why it's used for testing only. It also breaks at kinks such as ReLU at 0. Random inputs almost surely avoid hitting a kink exactly, but structured data might not, as the MLP check below shows.
+
+<GradCheck />
+
+## 10. Training an MLP with the engine
+
+The data is a 2-D, 3-class spiral: the classes interleave, so no linear model can separate them. The network uses ReLU and **He initialization**, $\mathbf{W} \sim \mathcal{N}(0, 2/d_\text{in})$. Module 3 derives where the 2 comes from. Training is full-batch gradient descent on mean cross-entropy.
+
+<SpiralTrainer />
+
+## Exercises
+
+1. **Transpose and reshape.** Add `.T` and `.reshape(shape)` to `Tensor`. Derive their VJPs with the differential recipe, then gradient-check them.
+2. **LayerNorm.** Derive the VJP of $\mathbf{y} = (\mathbf{x} - \mu)/\sqrt{\sigma^2 + \epsilon}$ (one row) with differentials. Implement it as a single op and check it against the version composed from primitive ops. Which is cheaper, and why?
+3. **Max and subgradients.** Implement `max(axis)`. What should the VJP do when there's a tie? Is your choice a subgradient of a convex function?
+4. **The dot-product test.** Add forward mode to `Tensor` (a JVP per op). Then verify $\langle \mathbf{u}, \mathbf{J}\mathbf{v} \rangle = \langle \mathbf{J}^\top \mathbf{u}, \mathbf{v} \rangle$ for random $\mathbf{u}, \mathbf{v}$ on the MLP. This checks JVPs against VJPs with no finite differences at all.
+5. **Order matters.** Build a small graph where processing nodes in breadth-first order from the output, instead of reverse topological order, gives a wrong gradient. Which node gets pushed on too early?
+6. **Memory.** Count how many arrays the tape holds for an $L$-layer MLP. Then implement checkpointing that keeps only every $k$-th activation and recomputes the rest during `backward`.
+7. **Hessian–vector products.** Using $\mathbf{H}\mathbf{v} = \nabla_\mathbf{x}\big(\nabla f(\mathbf{x})^\top \mathbf{v}\big)$, explain why an HVP costs about as much as a couple of gradients, while the full Hessian costs $P$ of them.

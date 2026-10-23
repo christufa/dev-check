@@ -1,0 +1,144 @@
+export const meta = {
+  title: "Probability spaces",
+  summary: "σ-fields, measures and their basic properties, and how Lebesgue and Stieltjes measures are built by extension.",
+  order: 1,
+  source: "Durrett, Probability: Theory and Examples, 5th ed., §1.1",
+};
+
+# Probability spaces
+
+These notes review the ideas in Durrett's §1.1 and why they matter. They're a study companion, not a transcription of the text. The section builds two things:
+
+1. **The objects:** σ-fields, measures and probability spaces, plus their basic properties.
+2. **The machinery that makes interesting measures exist:** Lebesgue and Stieltjes measures on $\mathbb{R}$ and $\mathbb{R}^d$, built by extending a set function from a simple class of sets to a σ-field.
+
+The second part is the harder one, and the one people tend to skim.
+
+## 1. The setup
+
+A **probability space** $(\Omega, \mathcal{F}, P)$ has three parts:
+
+- $\Omega$ is the set of outcomes.
+- $\mathcal{F}$ is a σ-field of subsets of $\Omega$. These are the *events*, the sets you're allowed to ask the probability of.
+- $P$ is a measure on $\mathcal{F}$ with $P(\Omega) = 1$.
+
+**σ-field axioms.** $\mathcal{F}$ is nonempty, closed under complements, and closed under countable unions. It follows that $\Omega, \varnothing \in \mathcal{F}$ and, by De Morgan, that $\mathcal{F}$ is closed under countable intersections.
+
+**Why not use all subsets?** On $\mathbb{R}$, no function defined on *every* subset can be countably additive, translation invariant and give intervals their length; the Vitali set is the standard counterexample. So we restrict to a σ-field big enough for everything we care about: the **Borel sets** $\mathcal{R} = \sigma(\text{open sets})$.
+
+**Generated σ-fields.** For any collection $\mathcal{A}$, $\sigma(\mathcal{A})$ is the intersection of all σ-fields containing $\mathcal{A}$. That intersection is itself a σ-field, which is worth verifying once. Many collections generate $\mathcal{R}$: the intervals $(a, b)$, the intervals $(a, b]$, the rays $(-\infty, x]$, and the same with rational endpoints only. The rational version matters later because it is a *countable* generating class.
+
+**Measure.** A function $\mu : \mathcal{F} \to [0, \infty]$ with $\mu(A) \ge \mu(\varnothing) = 0$ that is **countably additive**: if $A_1, A_2, \ldots$ are disjoint, then
+
+$$
+\mu\Big(\bigcup_i A_i\Big) = \sum_i \mu(A_i).
+$$
+
+## 2. Basic properties of measures
+
+Let $\mu$ be a measure on $(\Omega, \mathcal{F})$. Every proof below uses one trick: **make the sets disjoint, then apply countable additivity.**
+
+| Property | Statement | Proof idea |
+| --- | --- | --- |
+| Monotonicity | $A \subset B \Rightarrow \mu(A) \le \mu(B)$ | $B = A \cup (B \setminus A)$ is a disjoint union. |
+| Subadditivity | $A \subset \bigcup_n A_n \Rightarrow \mu(A) \le \sum_n \mu(A_n)$ | Let $B_n = A_n \setminus (A_1 \cup \cdots \cup A_{n-1})$. The $B_n$ are disjoint, have the same union, and $B_n \subset A_n$. |
+| Continuity from below | $A_n \uparrow A \Rightarrow \mu(A_n) \uparrow \mu(A)$ | Write $A$ as the disjoint union of the rings $A_n \setminus A_{n-1}$; then $\mu(A_n)$ is a partial sum of the series for $\mu(A)$. |
+| Continuity from above | $A_n \downarrow A$ and $\mu(A_1) < \infty \Rightarrow \mu(A_n) \downarrow \mu(A)$ | Take complements inside $A_1$: $A_1 \setminus A_n \uparrow A_1 \setminus A$, then use continuity from below. |
+
+> **Pitfall:** continuity from above needs a finite starting measure. With Lebesgue measure, $A_n = [n, \infty)$ decreases to $\varnothing$, yet $\lambda(A_n) = \infty$ for every $n$. For probability measures the condition always holds, which is one reason they're easier to work with.
+
+## 3. Examples
+
+**Discrete spaces.** Take $\Omega$ countable, $\mathcal{F}$ all subsets, and $P(A) = \sum_{\omega \in A} p(\omega)$ with $p \ge 0$ and $\sum_\omega p(\omega) = 1$. Nothing subtle happens here, which is why measure theory feels unnecessary until you reach $\mathbb{R}$.
+
+**Lebesgue measure.** The unique measure $\lambda$ on $(\mathbb{R}, \mathcal{R})$ with $\lambda((a, b]) = b - a$. The section's real content is proving that it *exists*. Uniqueness comes from the π–λ theorem in the appendix.
+
+**Stieltjes measure functions.** These generalise Lebesgue measure. $F : \mathbb{R} \to \mathbb{R}$ is a Stieltjes measure function if it is
+
+1. **nondecreasing**, and
+2. **right-continuous**: $F(y) \downarrow F(x)$ as $y \downarrow x$.
+
+**Theorem.** Each such $F$ gives a unique measure $\mu$ on $(\mathbb{R}, \mathcal{R})$ with $\mu((a, b]) = F(b) - F(a)$.
+
+The two conditions are exactly what continuity of measure forces:
+
+- **Right-continuity:** $(a, b + 1/n] \downarrow (a, b]$, so continuity from above requires $F(b + 1/n) \to F(b)$.
+- **Atoms:** $(a - 1/n, a] \downarrow \lbrace a \rbrace$ gives $\mu(\lbrace a \rbrace) = F(a) - F(a-)$. Jumps in $F$ are point masses, and a continuous $F$ has no atoms.
+- **Lebesgue as a special case:** $F(x) = x$.
+- **Distribution functions:** if also $F(-\infty) = 0$ and $F(\infty) = 1$, then $\mu$ is a probability measure and $F$ is its distribution function. This leads into §1.2.
+
+## 4. The construction machinery
+
+You can't define $\mu$ directly on all Borel sets: there are too many of them. Instead you define it on a simple class and extend:
+
+$$
+\text{semialgebra } \mathcal{S} \;\longrightarrow\; \text{algebra } \bar{\mathcal{S}} \text{ (finite disjoint unions)} \;\longrightarrow\; \text{σ-field } \sigma(\mathcal{S}) \text{ (Carathéodory)}.
+$$
+
+**Semialgebra.** $\mathcal{S}$ is closed under finite intersections, and every complement $S^c$ is a *finite disjoint union* of sets in $\mathcal{S}$.
+
+The key example is the half-open intervals $(a, b]$ together with $\varnothing$. Their complement $(-\infty, a] \cup (b, \infty)$ is again a disjoint union of half-open intervals (allowing infinite endpoints). This is why Durrett uses $(a, b]$ and not $(a, b)$ or $[a, b]$: the complement of $(a, b)$ is $(-\infty, a] \cup [b, \infty)$, which isn't made of open intervals. In $\mathbb{R}^d$, products of half-open intervals (rectangles) also form a semialgebra.
+
+**Lemma.** If $\mathcal{S}$ is a semialgebra, the collection $\bar{\mathcal{S}}$ of finite disjoint unions of sets in $\mathcal{S}$ is an **algebra**: closed under complements and *finite* unions.
+
+**Extension theorem.** Suppose $\mu$ on $\mathcal{S}$ has $\mu(\varnothing) = 0$ and
+
+- **(i) finite additivity:** if $S \in \mathcal{S}$ is a finite disjoint union of $S_i \in \mathcal{S}$, then $\mu(S) = \sum_i \mu(S_i)$;
+- **(ii) countable subadditivity:** if $S \in \mathcal{S}$ is a countable disjoint union of $S_i \in \mathcal{S}$, then $\mu(S) \le \sum_i \mu(S_i)$.
+
+Then $\mu$ extends uniquely to a measure on $\bar{\mathcal{S}}$. If it is σ-finite there, Carathéodory's theorem (proved in the appendix, worth reading once) extends it uniquely to $\sigma(\mathcal{S})$.
+
+### Where the real work is
+
+To prove the Stieltjes theorem you check (i) and (ii) for $\mu((a, b]) = F(b) - F(a)$.
+
+- **(i)** is bookkeeping: the sums telescope.
+- **The easy inequality, ≥.** If a countable disjoint union of intervals sits inside $(a, b]$, every finite subcollection has total measure at most $F(b) - F(a)$. Letting the subcollection grow gives $\sum_i \mu((a_i, b_i]) \le F(b) - F(a)$.
+- **The hard inequality, (ii).** This is where **compactness** comes in.
+  1. Shrink $(a, b]$ slightly to the compact set $[a + \delta, b]$.
+  2. Enlarge each $(a_i, b_i]$ to the open set $(a_i, b_i + \varepsilon_i)$. Right-continuity lets you choose $\varepsilon_i$ so that $F(b_i + \varepsilon_i) - F(b_i) < \varepsilon 2^{-i}$.
+  3. Heine–Borel gives a finite subcover, and finite additivity finishes the argument.
+
+This is the one place in the section where the *topology* of $\mathbb{R}$ matters, not just its set structure. It is also the second place right-continuity is needed.
+
+## 5. Measures on ℝᵈ
+
+The analogue of $F(b) - F(a)$ is the **rectangle increment**. For $A = (a_1, b_1] \times \cdots \times (a_d, b_d]$ with corner set $V$,
+
+$$
+\Delta_A F = \sum_{v \in V} (-1)^{\#a(v)} F(v),
+$$
+
+where $\#a(v)$ counts the coordinates of $v$ taken from a lower endpoint. In two dimensions,
+
+$$
+\Delta_A F = F(b_1, b_2) - F(a_1, b_2) - F(b_1, a_2) + F(a_1, a_2).
+$$
+
+If $F$ is right-continuous (coordinatewise from above) and $\Delta_A F \ge 0$ for every rectangle, then there is a unique measure with $\mu(A) = \Delta_A F$.
+
+> **Pitfall:** being nondecreasing in each coordinate is **not** enough. On $\mathbb{R}^2$ let $F = 1$ if $x_1 \ge 1$ and $x_2 \ge 1$; $F = 2/3$ if one coordinate is at least 1 and the other is in $[0, 1)$; and $F = 0$ otherwise. $F$ is nondecreasing in each coordinate, but for $A = (0, 1]^2$
+>
+> $$
+> \Delta_A F = F(1,1) - F(0,1) - F(1,0) + F(0,0) = 1 - \tfrac{2}{3} - \tfrac{2}{3} + 0 = -\tfrac{1}{3} < 0,
+> $$
+>
+> so it would give a rectangle negative mass. Check the four values yourself.
+
+## 6. Key takeaways
+
+1. **σ-fields exist because "all subsets" is too many** to measure consistently on $\mathbb{R}$.
+2. **Every basic property comes from making sets disjoint** and applying countable additivity.
+3. **Continuity from above needs finiteness.** Remember $[n, \infty)$.
+4. **Nondecreasing and right-continuous $F$ ⟺ a measure on $\mathbb{R}$.** Right-continuity is what continuity from above forces, and jumps are atoms.
+5. **Measures are built, not defined directly:** semialgebra → algebra → σ-field. The hard step is countable subadditivity, proved with compactness.
+6. **In $\mathbb{R}^d$ the condition is $\Delta_A F \ge 0$,** which is stronger than being monotone in each coordinate.
+
+## Self-check questions
+
+1. Show that a countable intersection of σ-fields is a σ-field. Give a counterexample showing that a union of two σ-fields need not be one.
+2. Show that if $\mathcal{F}_1 \subset \mathcal{F}_2 \subset \cdots$ are σ-fields, then $\bigcup_n \mathcal{F}_n$ is an algebra. Then show it need not be a σ-field.
+3. Show that $\mathcal{R} = \sigma\big(\lbrace (a, b] : a, b \in \mathbb{Q} \rbrace\big)$.
+4. Let $F$ be a Stieltjes measure function with measure $\mu$. Express $\mu([a, b])$, $\mu((a, b))$ and $\mu([a, b))$ in terms of $F$, $F(a-)$ and $F(b-)$.
+5. Find the step in the Stieltjes proof where right-continuity is essential. Explain why a left-continuous $F$ would also work with intervals $[a, b)$.
+6. Let $\mathcal{A}$ be the subsets of $\mathbb{R}$ that are countable or have countable complement. Show $\mathcal{A}$ is a σ-field, and that $P(A) = 0$ for countable $A$ and $1$ for co-countable $A$ is a measure on it.
